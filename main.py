@@ -4,14 +4,20 @@ import pandas as pd
 import numpy as np
 import os
 import joblib
+import json
 import firebase_admin
 from firebase_admin import credentials, firestore, storage
 from datetime import datetime
 
-cred = credentials.Certificate("staysenseKey.json")
+
+firebase_credentials = json.loads(os.getenv('FIREBASE_CREDENTIALS'))
+cred = credentials.Certificate(firebase_credentials)
+
 firebase_admin.initialize_app(cred, {
     'storageBucket': 'staysense-624b4.firebasestorage.app'
 })
+
+
 
 db = firestore.client() 
 
