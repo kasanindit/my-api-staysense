@@ -30,34 +30,34 @@
 - **Request Body (JSON):**
     ```json
     {
-        "age": int,
-        "number_of_dependents": int,
-        "city": string,
-        "tenure_in_months": int,
-        "internet_service": string,
-        "online_security": string,
-        "online_backup": string,
-        "device_protection_plan": string,
-        "premium_tech_support": string,
-        "streaming_tv": string,
-        "streaming_movies": string,
-        "streaming_music": string,
-        "unlimited_data": string,
-        "contract": string,
-        "payment_method": string,
-        "monthly_charge": float,
-        "total_charges": float,
-        "total_revenue": float,
-        "satisfaction_score": int,
-        "churn_score": int,
-        "cltv": float
+        "age": "int",
+        "number_of_dependents": "int",
+        "city": "string",
+        "tenure_in_months": "int",
+        "internet_service": "string",
+        "online_security": "string",
+        "online_backup": "string",
+        "device_protection_plan": "string",
+        "premium_tech_support": "string",
+        "streaming_tv": "string",
+        "streaming_movies": "string",
+        "streaming_music": "string",
+        "unlimited_data": "string",
+        "contract": "string",
+        "payment_method": "string",
+        "monthly_charge": "float",
+        "total_charges": "float",
+        "total_revenue": "float",
+        "satisfaction_score": "int",
+        "churn_score": "int",
+        "cltv": "float"
     }
     ```
 - **Response:**
     ```json
     {
         "prediction": {
-            "is_churn": boolean,
+            "is_churn": "boolean",
             "churn_probability": "float%",
             "message": "string"
         }
@@ -81,9 +81,9 @@
     ```json
     {
         "summary": {
-            "total_customers": int,
-            "churn_count": int,
-            "not_churn_count": int,
+            "total_customers": "int",
+            "churn_count": "int",
+            "not_churn_count": "int",
             "churn_rate": "float%",
             "filename": "string",
             "file_url": "string (URL)",
