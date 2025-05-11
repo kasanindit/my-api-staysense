@@ -16,7 +16,7 @@ db = firestore.client()
 
 app = Flask(__name__)
 
-model_path = os.path.join("model", "model_TabNet3.pkl")
+model_path = os.path.join("model", "tabnet_model.pkl")
 model = joblib.load(model_path)
 
 
@@ -76,7 +76,7 @@ def predict():
         # output yang keluar
         if churn_probability > 0.5:
             result = {
-                "is_churn": True,
+                "is_churn": True,                
                 "churn_rate": f"{round(churn_probability * 100, 2):.2f}%",
                 "message": f"Customer will churn with probability {churn_probability * 100:.2f}%"
             }
