@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, json, request, jsonify
 import pandas as pd
 import numpy as np
 import os
@@ -7,10 +7,18 @@ import firebase_admin
 from firebase_admin import credentials, firestore, storage
 from datetime import datetime
 
-cred = credentials.Certificate("staysenseKey.json")
+
+firebase_key = os.getenv("FIREBASE_CREDENTIALS")
+cred = credentials.Certificate(json.loads(firebase_key))
+
 firebase_admin.initialize_app(cred, {
     'storageBucket': 'staysense-624b4.firebasestorage.app'
 })
+
+# cred = credentials.Certificate("staysenseKey.json")
+# firebase_admin.initialize_app(cred, {
+#     'storageBucket': 'staysense-624b4.firebasestorage.app'
+# })
 
 db = firestore.client() 
 
