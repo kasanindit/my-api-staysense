@@ -16,7 +16,7 @@ db = firestore.client()
 
 app = Flask(__name__)
 
-model_path = os.path.join("model", "tabnet_model.pkl")
+model_path = os.path.join("model", "model_TabNet3.pkl")
 model = joblib.load(model_path)
 
 
