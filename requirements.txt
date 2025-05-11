@@ -1,3 +1,4 @@
+aws-wsgi==0.2.7
 firebase-admin==6.8.0
 Flask==3.1.0
 gunicorn==23.0.0
@@ -5,4 +6,5 @@ joblib==1.4.2
 numpy==2.2.5
 pandas==2.2.3
 pytorch-tabnet==4.1.0
+scikit-learn==1.6.1
 torch==2.7.0
