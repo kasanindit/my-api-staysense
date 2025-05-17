@@ -3,9 +3,12 @@ import pandas as pd
 import numpy as np
 import os
 import joblib
+import io
+from sklearn.feature_extraction.text import CountVectorizer
 import firebase_admin
 from firebase_admin import credentials, firestore, storage
 from datetime import datetime
+from wordcloud import WordCloud
 
 
 firebase_key = os.getenv("FIREBASE_CREDENTIALS")
@@ -16,6 +19,7 @@ firebase_admin.initialize_app(cred, {
 })
 
 # cred = credentials.Certificate("staysenseKey.json")
+
 # firebase_admin.initialize_app(cred, {
 #     'storageBucket': 'staysense-624b4.firebasestorage.app'
 # })
@@ -27,16 +31,16 @@ app = Flask(__name__)
 model_path = os.path.join("model", "tabnet_model.pkl")
 model = joblib.load(model_path)
 
+wordcloud_path = os.path.join("model", "wordcloud.pkl")
+wordcloud_model = joblib.load(wordcloud_path)
+
+clustering_path = os.path.join("model", "kmeans_model.pkl")
+clustering_model = joblib.load(clustering_path)
+
+bucket = storage.bucket()
+
 
 # Kolom yang dibutuhkan
-# required_cols = [
-#     "Age", "Number_of_Dependents", "City", "Tenure_in_Months",
-#     "Internet_Service", "Online_Security", "Online_Backup", "Device_Protection_Plan",
-#     "Premium_Tech_Support", "Streaming_TV", "Streaming_Movies", "Streaming_Music",
-#     "Unlimited_Data", "Contract", "Payment_Method", "Monthly_Charge",
-#     "Total_Charges", "Total_Revenue", "Satisfaction_Score", "Churn_Score", "CLTV"
-# ]
-
 required_cols = [
     "age", "number_of_dependents", "city", "tenure_in_months",
     "internet_service", "online_security", "online_backup", "device_protection_plan",
@@ -50,6 +54,7 @@ required_cols = [
 def index():
     return "API is running!"
 
+# Input Manual
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
@@ -95,7 +100,6 @@ def predict():
                 "message": f"Customer will not churn with probability {(1 - churn_probability) * 100:.2f}%"
             }
 
-
         now = datetime.now()
         month_str = now.strftime("%Y-%m")
 
@@ -125,10 +129,8 @@ def predict():
             }
         }), 500
             
-    
-
+# Upload File
 def upload_to_storage(file, filename, folder="uploaded_files"):
-    bucket = storage.bucket()
     blob = bucket.blob(f"{folder}/{filename}")
     blob.upload_from_file(file, content_type=file.content_type)
     blob.make_public()
@@ -149,7 +151,6 @@ def upload():
     else:
         return jsonify({"error": "Unsupported file format. Only CSV, XLS, XLSX allowed."}), 400
     
-    # cek nama kolom
     df.columns = df.columns.str.lower().str.replace(' ', '_').str.replace('[^a-zA-Z0-9_]', '', regex=True)
 
     missing_cols = [col for col in required_cols if col not in df.columns]
@@ -197,7 +198,7 @@ def upload():
             "message": str(e)
         }), 500
 
-    
+# History
 @app.route("/history", methods=["GET"])
 def get_summary_history():
     try:
@@ -206,8 +207,9 @@ def get_summary_history():
         return jsonify({"history": summaries})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
-@app.route("/chart", methods=["GET"])
+
+# Dashboard
+@app.route("/dashboard/chart", methods=["GET"])
 def get_chart_data():
     try:
         docs = db.collection("predictions").stream()
@@ -252,8 +254,89 @@ def get_chart_data():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
 
+# Wordcloud
+def upload_wordcloud_image(image_bytes, filename):
+    blob = bucket.blob(filename)
+    blob.upload_from_string(image_bytes, content_type='image/png')
+    blob.make_public()
+    return blob.public_url
 
+def append_to_firestore_text(new_text):
+    doc_ref = db.collection("wordcloud").document("cumulative_wordcloud")
+    doc = doc_ref.get()
+    if doc.exists:
+        existing_text = doc.to_dict().get("text", "")
+        updated_text = existing_text + " " + new_text
+    else:
+        updated_text = new_text
+    doc_ref.set({"text": updated_text})
 
+def read_firestore_text():
+    doc_ref = db.collection("wordcloud").document("cumulative_wordcloud")
+    doc = doc_ref.get()
+    if doc.exists:
+        return doc.to_dict().get("text", "")
+    return ""
+    
+@app.route('/wordcloud', methods=['POST'])
+def generate_wordcloud_from_model():
+    data = request.json
+    use_model = data.get('use_model', True)
+    text = data.get('text', None)
+    
+    if use_model:
+        word_freq_dict = wordcloud_model.words_
+        text = " ".join([word for word, freq in word_freq_dict.items() for _ in range(int(freq * 100))])
+    else:
+        if not text:
+            return jsonify({"error": "No text provided"}), 400
+        if not text:
+            return jsonify({"error": "No text provided"}), 400
+        
+        append_to_firestore_text(text)     
+        text = read_firestore_text()
+    wc = WordCloud(width=800, height=400).generate(text)
+    
+    img_byte_arr = io.BytesIO()
+    wc.to_image().save(img_byte_arr, format='PNG')
+    img_byte_arr = img_byte_arr.getvalue()
+
+    filename = "wordclouds/wordcloud.png"
+    url = upload_wordcloud_image(img_byte_arr, filename)
+
+    return jsonify({"image_url": url})
+
+# Cluster
+cluster_descriptions = {
+    0: "don't know",
+    1: "competitor made better offer, better devices",
+    2: "limited range, service dissatisfaction",
+    3: "attitude support person",
+    4: "offered data, higher speed, extra data charges"
+}
+    
+@app.route("/cluster/chart", methods=["GET"])
+def get_clustering_data():
+    labels = clustering_model.labels_
+    counts = {}
+    
+    for label in labels:
+        counts[label] = counts.get(label, 0) + 1
+        
+    output = []
+    for cluster_num, desc in cluster_descriptions.items():
+        output.append(
+            {
+                "cluster": cluster_num,
+                "description": desc,
+                "count": counts.get(cluster_num, 0)
+            }
+        )
+        
+    return jsonify(output)
+    
+    
 if __name__ == "__main__":
     app.run(debug=True)
