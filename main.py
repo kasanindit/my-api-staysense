@@ -4,7 +4,6 @@ import numpy as np
 import os
 import joblib
 import io
-from sklearn.feature_extraction.text import CountVectorizer
 import firebase_admin
 from firebase_admin import credentials, firestore, storage
 from datetime import datetime
