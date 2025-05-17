@@ -153,14 +153,14 @@
 - **Request:**
     ```json
     {
-  "use_model": boolean,
-  "text": "string"
+      "use_model": boolean,
+      "text": "string"
     }
     ```
 - **Response:**
     ```json
     {
-  "image_url": "string"
+      "image_url": "string"
     }
     ```
 
@@ -171,16 +171,16 @@
 - **Response:**
     ```json
     [
-  {
-    "cluster": int,
-    "description": "string",
-    "count": int
-  },
-  {
-    "cluster": int,
-    "description": "string",
-    "count": int
-  }
+      {
+        "cluster": int,
+        "description": "string",
+        "count": int
+      },
+      {
+        "cluster": int,
+        "description": "string",
+        "count": int
+      }
     ]
     ```
 
