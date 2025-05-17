@@ -123,7 +123,7 @@
 ---
 
 ## **Chart**
-- **Endpoint:** `/chart`
+- **Endpoint:** `/dashboar/chart`
 - **Method:** `GET`
 - **Description:** Mengambil data untuk kebutuhan visualisasi pie chart dan bar chart churn.
 - **Response:**
@@ -140,6 +140,48 @@
             }
         ]
     }
+    ```
+
+    ## **Wordcloud**
+- **Endpoint:** `/wordcloud`
+- **Method:** `POST`
+- **Description:** Mengirim data untuk kebutuhan visualisasi Wordcloud.
+- - **Request Header:**
+    ```
+    Content-Type: application/json
+    ```
+- **Request:**
+    ```json
+    {
+  "use_model": boolean,
+  "text": "string"
+    }
+    ```
+- **Response:**
+    ```json
+    {
+  "image_url": "string"
+    }
+    ```
+
+  ## **Clustering**
+- **Endpoint:** `/cluster/chart`
+- **Method:** `GET`
+- **Description:** Mendapat data untuk kebutuhan visualisasi Vertical Bar.
+- **Response:**
+    ```json
+    [
+  {
+    "cluster": int,
+    "description": "string",
+    "count": int
+  },
+  {
+    "cluster": int,
+    "description": "string",
+    "count": int
+  }
+    ]
     ```
 
 ---
