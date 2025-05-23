@@ -1,10 +1,11 @@
-from flask import Flask, json, request, jsonify
+from flask import Flask, request, jsonify
 import pandas as pd
 import numpy as np
 import os
 import joblib
 import io
 import firebase_admin
+import re
 from firebase_admin import credentials, firestore, storage
 from datetime import datetime
 from wordcloud import WordCloud
@@ -27,11 +28,16 @@ db = firestore.client()
 
 app = Flask(__name__)
 
-model_path = os.path.join("model", "tabnet_model.pkl")
-model = joblib.load(model_path)
+def to_snake_case(name):
+    name = re.sub(r"[\s/]+", "_", name)
+    return name.lower()
 
-wordcloud_path = os.path.join("model", "wordcloud.pkl")
-wordcloud_model = joblib.load(wordcloud_path)
+
+model_path = os.path.join("model", "tabnet_churn_model2.pkl")
+model_bundle = joblib.load(model_path)
+model = model_bundle["model"]
+encoder = {to_snake_case(k): v for k, v in model_bundle["feature_encoders"].items()}
+columns = [to_snake_case(col) for col in model_bundle["columns"]]
 
 clustering_path = os.path.join("model", "kmeans_model.pkl")
 clustering_model = joblib.load(clustering_path)
@@ -48,40 +54,53 @@ required_cols = [
     "total_charges", "total_revenue", "satisfaction_score", "churn_score", "cltv"
 ]
 
+def encode_input(data_dict):
+    processed = {}
+    for col in columns:
+        val = data_dict.get(col)
+        if val is None:
+            raise ValueError(f"Missing required input: '{col}'")
+        
+        if col in encoder:
+            le = encoder[col]
+            if val not in le.classes_:
+                raise ValueError(
+                    f"Invalid value '{val}' for column '{col}'. Expected one of: {list(le.classes_)}"
+                )
+            val = le.transform([val])[0]
+        else:
+            if isinstance(val, str) and val.strip().lower() in ['yes', 'no']:
+                val = 1 if val.strip().lower() == 'yes' else 0
+            elif isinstance(val, str):
+                try:
+                    val = float(val)
+                except ValueError:
+                    raise ValueError(f"Invalid non-numeric input after encoding: {val}")
+        
+        processed[col] = val
+
+    return np.array([list(processed.values())], dtype=np.float32)
+
 
 @app.route("/", methods=["GET"])
 def index():
     return "API is running!"
+
+@app.route("/valid-values", methods=["GET"])
+def valid_values():
+    return jsonify({
+        col: list(encoder[col].classes_)
+        for col in encoder
+    })
 
 # Input Manual
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
         data = request.get_json()
+        data = {k.lower(): v for k, v in data.items()}
         
-        input_data = np.array([[ 
-            data["age"],
-            data["number_of_dependents"],
-            data["city"],
-            data["tenure_in_months"],
-            data["internet_service"],
-            data["online_security"],
-            data["online_backup"],
-            data["device_protection_plan"],
-            data["premium_tech_support"],
-            data["streaming_tv"],
-            data["streaming_movies"],
-            data["streaming_music"],
-            data["unlimited_data"],
-            data["contract"],
-            data["payment_method"],
-            data["monthly_charge"],
-            data["total_charges"],
-            data["total_revenue"],
-            data["satisfaction_score"],
-            data["churn_score"],
-            data["cltv"]
-        ]])
+        input_data = encode_input(data)
 
         churn_probability = model.predict_proba(input_data)[0][1]
 
@@ -157,9 +176,19 @@ def upload():
         return jsonify({"error": f"Missing columns: {missing_cols}"}), 400
 
     try:
-        
         # Prediksi
-        df = df[required_cols]
+        df = df[columns]
+        
+        for col in df.columns:
+            if col in encoder:
+                le = encoder[col]
+                if not df[col].isin(le.classes_).all():
+                    unknown_vals = df[~[col].isin(le.classes_)][col].unique().tolist()
+                    return jsonify({
+                        "error": f"Invalid values in column '{col}': {unknown_vals}. Expected one of: {list(le.classes_)}"
+                    }), 400
+                df[col] = le.transform(df[col])
+                
         input_data = df.to_numpy()
         proba = model.predict_proba(input_data)
         churn_flags = proba[:, 1] > 0.5
@@ -215,25 +244,30 @@ def get_chart_data():
 
         total_churn = 0
         total_not_churn = 0
+        total_customers = 0
         per_month = {}
 
         for doc in docs:
             data = doc.to_dict()
             is_churn = data.get("is_churn", False)
             month = data.get("month", "")
+            customers = data.get("total_customers", 1)
+            
+            total_customers += customers
 
             if not month:
                 continue 
+            
             if is_churn:
-                total_churn += 1
+                total_churn += customers
             else:
-                total_not_churn += 1
+                total_not_churn += customers
 
             if month not in per_month:
                 per_month[month] = {"churn": 0, "total": 0}
-            per_month[month]["total"] += 1 
+            per_month[month]["total"] += customers
             if is_churn:
-                per_month[month]["churn"] += 1 
+                per_month[month]["churn"] += customers
 
         churn_rate_per_month = [
             {
@@ -242,13 +276,23 @@ def get_chart_data():
             }
             for m, d in sorted(per_month.items())
         ]
+        
+        average_churn_rate = 0
+        if per_month:
+            average_churn_rate = round(sum((d["churn"] / d["total"]) * 100 for d in per_month.values()) / len(per_month), 2)
 
         return jsonify({
             "pie_chart": {
                 "churn": total_churn,
                 "not_churn": total_not_churn
             },
-            "bar_chart": churn_rate_per_month
+            "bar_chart": churn_rate_per_month,
+            "information": {
+                "total_customers": total_customers,
+                "total_churn": total_churn,
+                "total_not_churn": total_not_churn,
+                "average_churn_rate": f"{average_churn_rate:.2f}%"
+            }
         })
 
     except Exception as e:
@@ -256,6 +300,12 @@ def get_chart_data():
     
 
 # Wordcloud
+def upload_to_storage(file, filename, folder="wordcloud_files"):
+    blob = bucket.blob(f"{folder}/{filename}")
+    blob.upload_from_file(file, content_type=file.content_type)
+    blob.make_public()
+    return blob.public_url
+
 def upload_wordcloud_image(image_bytes, filename):
     blob = bucket.blob(filename)
     blob.upload_from_string(image_bytes, content_type='image/png')
@@ -281,31 +331,49 @@ def read_firestore_text():
     
 @app.route('/wordcloud', methods=['POST'])
 def generate_wordcloud_from_model():
-    data = request.json
-    use_model = data.get('use_model', True)
-    text = data.get('text', None)
+    text_from_file = ""
+    form_text = ""
     
-    if use_model:
-        word_freq_dict = wordcloud_model.words_
-        text = " ".join([word for word, freq in word_freq_dict.items() for _ in range(int(freq * 100))])
+    # untuk input file
+    if 'file' in request.files:
+        file = request.files['file']
+        filename = file.filename.lower()
+
+        if filename.endswith(".csv"):
+            df = pd.read_csv(file)
+        elif filename.endswith(".xls") or filename.endswith(".xlsx"):
+            df = pd.read_excel(file)
+        else:
+            return jsonify({"error": "Unsupported file format. Only CSV, XLS, XLSX allowed."}), 400
+
+        df.columns = df.columns.str.lower().str.replace(' ', '_').str.replace('[^a-zA-Z0-9_]', '', regex=True)
+        text_columns = df.select_dtypes(include=['object'])
+        text_from_file = " ".join(text_columns.fillna(' ').astype(str).agg(' '.join, axis=1).tolist())
+    
+    # untuk input form
+    if request.is_json:
+        form_text = request.json.get("text", "")
     else:
-        if not text:
-            return jsonify({"error": "No text provided"}), 400
-        if not text:
-            return jsonify({"error": "No text provided"}), 400
-        
-        append_to_firestore_text(text)     
-        text = read_firestore_text()
-    wc = WordCloud(width=800, height=400).generate(text)
+        form_text = request.form.get("text", "")
+    
+    # menggabungkan reason dari file dan form
+    combined_input = f"{text_from_file} {form_text}".strip()
+    if not combined_input:
+        return jsonify({"error": "No valid text input from file or form."}), 400
+    
+    append_to_firestore_text(combined_input)
+    text = read_firestore_text()
+    
+    # membuat wordcloud
+    wc = WordCloud(width=800, height=400, background_color=None, mode="RGBA").generate(text)
     
     img_byte_arr = io.BytesIO()
     wc.to_image().save(img_byte_arr, format='PNG')
     img_byte_arr = img_byte_arr.getvalue()
 
-    filename = "wordclouds/wordcloud.png"
-    url = upload_wordcloud_image(img_byte_arr, filename)
+    image_url = upload_wordcloud_image(img_byte_arr, "wordclouds/wordcloud.png")
 
-    return jsonify({"image_url": url})
+    return jsonify({"image_url": image_url})
 
 # Cluster
 cluster_descriptions = {
