@@ -153,7 +153,6 @@
 - **Request:**
     ```json
     {
-      "use_model": boolean,
       "text": "string"
     }
     ```
