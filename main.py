@@ -33,10 +33,10 @@ def to_snake_case(name):
     return name.lower()
 
 
-model_path = os.path.join("model", "tabnet_churn_model2.pkl")
+model_path = os.path.join("model", "model_tabnet_reall.pkl")
 model_bundle = joblib.load(model_path)
 model = model_bundle["model"]
-encoder = {to_snake_case(k): v for k, v in model_bundle["feature_encoders"].items()}
+encoder = {to_snake_case(k): v for k, v in model_bundle["label_encoders"].items()}
 columns = [to_snake_case(col) for col in model_bundle["columns"]]
 
 clustering_path = os.path.join("model", "kmeans_model.pkl")
@@ -164,42 +164,44 @@ def upload():
 
     if filename.endswith(".csv"):
         df = pd.read_csv(file)
-    elif filename.endswith(".xls") or filename.endswith(".xlsx"):
+    elif filename.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file)
     else:
         return jsonify({"error": "Unsupported file format. Only CSV, XLS, XLSX allowed."}), 400
-    
+
+    # Normalisasi nama kolom
     df.columns = df.columns.str.lower().str.replace(' ', '_').str.replace('[^a-zA-Z0-9_]', '', regex=True)
 
-    missing_cols = [col for col in required_cols if col not in df.columns]
+    # Cek kolom yang wajib ada
+    missing_cols = [col for col in columns if col not in df.columns]
     if missing_cols:
         return jsonify({"error": f"Missing columns: {missing_cols}"}), 400
 
     try:
-        # Prediksi
+        # Ambil hanya kolom yang dibutuhkan
         df = df[columns]
-        
+
+        # Encode data
         for col in df.columns:
             if col in encoder:
                 le = encoder[col]
                 if not df[col].isin(le.classes_).all():
-                    unknown_vals = df[~[col].isin(le.classes_)][col].unique().tolist()
+                    unknown_vals = df[~df[col].isin(le.classes_)][col].unique().tolist()
                     return jsonify({
                         "error": f"Invalid values in column '{col}': {unknown_vals}. Expected one of: {list(le.classes_)}"
                     }), 400
                 df[col] = le.transform(df[col])
-                
+
         input_data = df.to_numpy()
         proba = model.predict_proba(input_data)
         churn_flags = proba[:, 1] > 0.5
 
         total_customers = len(proba)
         churn_count = int(np.sum(churn_flags))
-        
-        file.stream.seek(0) 
+
+        file.stream.seek(0)
         file_url = upload_to_storage(file, filename)
-        
-        # summary adalah output yang akan ditampilkan 
+
         summary = {
             "input_source": "Upload file",
             "total_customers": total_customers,
@@ -212,9 +214,8 @@ def upload():
             "month": datetime.now().strftime("%Y-%m")
         }
 
-        # dan akan terkirim ke firestore
         db.collection("predictions").add(summary)
-        
+
         return jsonify({
             "status": "success",
             "summary": summary

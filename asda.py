@@ -9,7 +9,7 @@
 import joblib
 
 # Load file .pkl
-model_path = "model/model_TabNet3.pkl"
+model_path = "model/model_tabnet_reall.pkl"
 # model_path = "model/tabnet_churn_model2.pkl"
 model_bundle = joblib.load(model_path)
 
@@ -25,10 +25,20 @@ if isinstance(model_bundle, dict):
     if "target_encoder" in model_bundle:
         print("Encoder type:", type(model_bundle["target_encoder"]))
         
+    if "label_encoders" in model_bundle:
+        print("Feature Encoder type:", type(model_bundle["label_encoders"]))
+        
     if "feature_encoders" in model_bundle:
         print("Feature Encoder type:", type(model_bundle["feature_encoders"]))
 
     if "columns" in model_bundle:
         print("Columns:", model_bundle["columns"])
+        
+    if "City" in model_bundle["columns"]:
+        city_encoder = model_bundle["label_encoders"]["Contract"]
+        city_list = list(city_encoder.classes_)
+        print("Daftar City yang dikenal oleh model:")
+        for city in city_list:
+            print(city)
 else:
     print("Isi bukan dictionary, tapi:", type(model_bundle))
