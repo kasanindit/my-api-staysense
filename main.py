@@ -11,18 +11,18 @@ from datetime import datetime
 from wordcloud import WordCloud
 
 
-firebase_key = os.getenv("FIREBASE_CREDENTIALS")
-cred = credentials.Certificate(json.loads(firebase_key))
-
-firebase_admin.initialize_app(cred, {
-    'storageBucket': 'staysense-624b4.firebasestorage.app'
-})
-
-# cred = credentials.Certificate("staysenseKey.json")
+# firebase_key = os.getenv("FIREBASE_CREDENTIALS")
+# cred = credentials.Certificate(json.loads(firebase_key))
 
 # firebase_admin.initialize_app(cred, {
 #     'storageBucket': 'staysense-624b4.firebasestorage.app'
 # })
+
+cred = credentials.Certificate("staysenseKey.json")
+
+firebase_admin.initialize_app(cred, {
+    'storageBucket': 'staysense-624b4.firebasestorage.app'
+})
 
 db = firestore.client() 
 
@@ -109,13 +109,16 @@ def predict():
             result = {
                 "is_churn": True,                
                 "churn_rate": f"{round(churn_probability * 100, 2):.2f}%",
-                "message": f"Customer will churn with probability {churn_probability * 100:.2f}%"
-            }
+                 "message": "The model predicts that this customer is likely to CHURN.\n"
+                            "It is recommended to take proactive actions such as offering promotions, personalized support, or loyalty programs to retain the customer."
+                }
         else:
             result = {
                 "is_churn": False,
                 "not_churn_rate": f"{round((1 - churn_probability) * 100, 2):.2f}%",
-                "message": f"Customer will not churn with probability {(1 - churn_probability) * 100:.2f}%"
+                "message": "The model predicts that this customer is likely to stay.\n"
+                            "Continue providing consistent service quality and consider rewarding loyalty "
+                            "to maintain customer satisfaction."
             }
 
         now = datetime.now()
@@ -277,15 +280,18 @@ def get_chart_data():
             }
             for m, d in sorted(per_month.items())
         ]
-        
+                
         average_churn_rate = 0
         if per_month:
             average_churn_rate = round(sum((d["churn"] / d["total"]) * 100 for d in per_month.values()) / len(per_month), 2)
+            
+        churn_percent = round((total_churn / total_customers) * 100, 2) if total_customers > 0 else 0
+        not_churn_percent = 100 - churn_percent
 
         return jsonify({
             "pie_chart": {
-                "churn": total_churn,
-                "not_churn": total_not_churn
+                "churn": churn_percent,
+                "not_churn": not_churn_percent
             },
             "bar_chart": churn_rate_per_month,
             "information": {
