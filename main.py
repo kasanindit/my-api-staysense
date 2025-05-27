@@ -11,18 +11,18 @@ from datetime import datetime
 from wordcloud import WordCloud
 
 
-firebase_key = os.getenv("FIREBASE_CREDENTIALS")
-cred = credentials.Certificate(json.loads(firebase_key))
-
-firebase_admin.initialize_app(cred, {
-    'storageBucket': 'staysense-624b4.firebasestorage.app'
-})
-
-# cred = credentials.Certificate("staysenseKey.json")
+# firebase_key = os.getenv("FIREBASE_CREDENTIALS")
+# cred = credentials.Certificate(json.loads(firebase_key))
 
 # firebase_admin.initialize_app(cred, {
 #     'storageBucket': 'staysense-624b4.firebasestorage.app'
 # })
+
+cred = credentials.Certificate("staysenseKey.json")
+
+firebase_admin.initialize_app(cred, {
+    'storageBucket': 'staysense-624b4.firebasestorage.app'
+})
 
 db = firestore.client() 
 
@@ -38,9 +38,6 @@ model_bundle = joblib.load(model_path)
 model = model_bundle["model"]
 encoder = {to_snake_case(k): v for k, v in model_bundle["label_encoders"].items()}
 columns = [to_snake_case(col) for col in model_bundle["columns"]]
-
-clustering_path = os.path.join("model", "kmeans_model.pkl")
-clustering_model = joblib.load(clustering_path)
 
 bucket = storage.bucket()
 
@@ -290,8 +287,8 @@ def get_chart_data():
 
         return jsonify({
             "pie_chart": {
-                "churn": churn_percent,
-                "not_churn": not_churn_percent
+                "churn": f"{churn_percent}%",
+                "not_churn": f"{not_churn_percent}%"
             },
             "bar_chart": churn_rate_per_month,
             "information": {
@@ -390,27 +387,30 @@ cluster_descriptions = {
     3: "attitude support person",
     4: "offered data, higher speed, extra data charges"
 }
+
+clustering_path = os.path.join("model", "kmeans7_model_joblib.pkl")
+clustering_data = joblib.load(clustering_path)
+clustering_model = clustering_data["model"]
     
 @app.route("/cluster/chart", methods=["GET"])
 def get_clustering_data():
+    
     labels = clustering_model.labels_
     counts = {}
-    
+
     for label in labels:
         counts[label] = counts.get(label, 0) + 1
-        
+
     output = []
     for cluster_num, desc in cluster_descriptions.items():
-        output.append(
-            {
-                "cluster": cluster_num,
-                "description": desc,
-                "count": counts.get(cluster_num, 0)
-            }
-        )
-        
+        output.append({
+            "cluster": cluster_num,
+            "description": desc,
+            "count": counts.get(cluster_num, 0)
+        })
+
     return jsonify(output)
-    
+
     
 if __name__ == "__main__":
     app.run(debug=True)
