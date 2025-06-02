@@ -33,6 +33,7 @@ def to_snake_case(name):
     return name.lower()
 
 
+# model_path = os.path.join("model", "model_tabnet_fix.pkl")
 model_path = os.path.join("model", "model_tabnet_reall.pkl")
 model_bundle = joblib.load(model_path)
 model = model_bundle["model"]
@@ -40,6 +41,8 @@ encoder = {to_snake_case(k): v for k, v in model_bundle["label_encoders"].items(
 columns = [to_snake_case(col) for col in model_bundle["columns"]]
 
 bucket = storage.bucket()
+
+TRESHOLD =  0.437
 
 
 # Kolom yang dibutuhkan
@@ -102,20 +105,19 @@ def predict():
         churn_probability = model.predict_proba(input_data)[0][1]
 
         # output yang keluar
-        if churn_probability > 0.5:
+        if churn_probability > TRESHOLD:
             result = {
                 "is_churn": True,                
                 "churn_rate": f"{round(churn_probability * 100, 2):.2f}%",
-                 "message": "The model predicts that this customer is likely to CHURN.\n"
-                            "It is recommended to take proactive actions such as offering promotions, personalized support, or loyalty programs to retain the customer."
+                "message": "The model predicts that this customer is likely to CHURN.",
+                "solution": "It is recommended to take proactive actions such as offering promotions, personalized support, or loyalty programs to retain the customer."
                 }
         else:
             result = {
                 "is_churn": False,
                 "not_churn_rate": f"{round((1 - churn_probability) * 100, 2):.2f}%",
-                "message": "The model predicts that this customer is likely to stay.\n"
-                            "Continue providing consistent service quality and consider rewarding loyalty "
-                            "to maintain customer satisfaction."
+                "message": "The model predicts that this customer is likely to STAY.",
+                "solution": "Continue providing consistent service quality and consider rewarding loyalty to maintain customer satisfaction."        
             }
 
         now = datetime.now()
@@ -194,7 +196,7 @@ def upload():
 
         input_data = df.to_numpy()
         proba = model.predict_proba(input_data)
-        churn_flags = proba[:, 1] > 0.5
+        churn_flags = proba[:, 1] > TRESHOLD
 
         total_customers = len(proba)
         churn_count = int(np.sum(churn_flags))
@@ -278,10 +280,7 @@ def get_chart_data():
             for m, d in sorted(per_month.items())
         ]
                 
-        average_churn_rate = 0
-        if per_month:
-            average_churn_rate = round(sum((d["churn"] / d["total"]) * 100 for d in per_month.values()) / len(per_month), 2)
-            
+        
         churn_percent = round((total_churn / total_customers) * 100, 2) if total_customers > 0 else 0
         not_churn_percent = 100 - churn_percent
 
@@ -291,18 +290,73 @@ def get_chart_data():
                 "not_churn": f"{not_churn_percent}%"
             },
             "bar_chart": churn_rate_per_month,
-            "information": {
-                "total_customers": total_customers,
-                "total_churn": total_churn,
-                "total_not_churn": total_not_churn,
-                "average_churn_rate": f"{average_churn_rate:.2f}%"
-            }
+            
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     
+@app.route("/dashboard/informations", methods = ["GET"])
+def get_informations():
+    try:
+        docs = db.collection("predictions").stream()
+        
+        total_churn = 0
+        total_not_churn = 0
+        total_customers = 0
+        total_satisfaction_scores = 0
+        total_predictions = 0
+        ss_per_month = {} #ss = satisfaction score
+        predictions_per_month = {}
+        
+        for doc in docs:
+            data = doc.to_dict()
+            is_churn = data.get("is_churn", False)
+            month = data.get("month", "")
+            customers = data.get("total_customers", 1)
+            satisfaction_scores = data.get("satisfaction_score", None)
+            
+            total_customers =+ customers
+            if is_churn:
+                total_churn += customers
+            else:
+                total_not_churn += customers
+                
+            if satisfaction_scores is not None:
+                total_satisfaction_scores += satisfaction_scores
+                total_predictions += 1
 
+                if month not in ss_per_month:
+                    ss_per_month[month] = {
+                        "total_score": 0,  # Perbaiki penamaan menjadi total_score
+                        "count": 0
+                    }
+                
+                # Menambahkan total satisfaction score per bulan
+                ss_per_month[month]["total_score"] += satisfaction_scores
+                ss_per_month[month]["count"] += 1
+            
+            total_predictions_per_month = [
+                {
+                    "month": month,
+                    "total_predictions": predictions_per_month.get(month, 0)
+                }
+                for month in sorted(predictions_per_month.keys())
+            ]
+    
+        return jsonify({
+            "information": {
+                    "total_customers": total_customers,
+                    "total_churn": total_churn,
+                    "total_not_churn": total_not_churn,
+                    "total_satisfaction_score_per_month": total_predictions_per_month,
+                    "total_predictions_per_month": total_predictions_per_month,
+                }
+        })
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+        
 # Wordcloud
 def upload_to_storage(file, filename, folder="wordcloud_files"):
     blob = bucket.blob(f"{folder}/{filename}")
@@ -380,17 +434,19 @@ def generate_wordcloud_from_model():
     return jsonify({"image_url": image_url})
 
 # Cluster
-cluster_descriptions = {
-    0: "don't know",
-    1: "competitor made better offer, better devices",
-    2: "limited range, service dissatisfaction",
-    3: "attitude support person",
-    4: "offered data, higher speed, extra data charges"
-}
-
 clustering_path = os.path.join("model", "kmeans7_model_joblib.pkl")
 clustering_data = joblib.load(clustering_path)
 clustering_model = clustering_data["model"]
+
+cluster_descriptions = {
+    0: 'Limited Services & Device Issues',
+    1: 'Customer Support Dissatisfaction',
+    2: 'Data Offers & Extra Charges',
+    3: 'Faster Competitor Speeds',
+    4: 'Product/Service Dissatisfaction',
+    5: 'Unclear/Unknown Reason',
+    6: 'Better Offers from Competitors'
+}
     
 @app.route("/cluster/chart", methods=["GET"])
 def get_clustering_data():

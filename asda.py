@@ -6,20 +6,20 @@
 
 # print(dir(model))
 
-import joblib
-import os
+# import joblib
+# import os
 
 # Load file .pkl
 # model_path = "model/model_tabnet_reall.pkl"
 # # model_path = "model/tabnet_churn_model2.pkl"
 # model_bundle = joblib.load(model_path)
 
-clustering_path = os.path.join("model", "kmeans7_model_joblib.pkl")
-clustering_model = joblib.load(clustering_path)
+# clustering_path = os.path.join("model", "kmeans7_model_joblib.pkl")
+# clustering_model = joblib.load(clustering_path)
 
-clustering_data = joblib.load(clustering_path)
-print(type(clustering_data))  # kemungkinan besar: <class 'dict'>
-print(clustering_data.keys())
+# clustering_data = joblib.load(clustering_path)
+# print(type(clustering_data))  # kemungkinan besar: <class 'dict'>
+# print(clustering_data.keys())
 
 
 # # Tampilkan type dan keys isi file
@@ -51,3 +51,28 @@ print(clustering_data.keys())
 #             print(city)
 # else:
 #     print("Isi bukan dictionary, tapi:", type(model_bundle))
+
+import pickle  # atau joblib jika kamu pakai joblib
+from flask import Flask
+import os
+import joblib
+
+# model_path = os.path.join("model", "model_tabnet_reall.pkl")
+model_path = os.path.join("model", "model_tabnet_fix.pkl")
+model_bundle = joblib.load(model_path)
+
+# Cetak tipe model
+print("Model type:", type(model_bundle))
+
+# Tampilkan isi / struktur model (jika ada)
+try:
+    print("Model details:")
+    print(model_bundle)
+except Exception as e:
+    print("Could not print model details:", str(e))
+    
+# print("Tipe model:", type(model_bundle["model"]))
+# if hasattr(model_bundle["model"], "predict_proba"):
+#     print("Model mendukung predict_proba()")
+# else:
+#     print("Model TIDAK mendukung predict_proba()")
