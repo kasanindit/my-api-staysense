@@ -290,7 +290,7 @@ def get_chart_data():
                 "not_churn": f"{not_churn_percent}%"
             },
             "bar_chart": churn_rate_per_month,
-            
+            "total_customer": total_customers  
         })
 
     except Exception as e:
@@ -304,52 +304,42 @@ def get_informations():
         total_churn = 0
         total_not_churn = 0
         total_customers = 0
-        total_satisfaction_scores = 0
-        total_predictions = 0
-        ss_per_month = {} #ss = satisfaction score
         predictions_per_month = {}
         
         for doc in docs:
             data = doc.to_dict()
+           
             is_churn = data.get("is_churn", False)
             month = data.get("month", "")
             customers = data.get("total_customers", 1)
-            satisfaction_scores = data.get("satisfaction_score", None)
+                        
+            total_customers += customers
             
-            total_customers =+ customers
+            if not month:
+                continue
+            
             if is_churn:
                 total_churn += customers
             else:
                 total_not_churn += customers
                 
-            if satisfaction_scores is not None:
-                total_satisfaction_scores += satisfaction_scores
-                total_predictions += 1
-
-                if month not in ss_per_month:
-                    ss_per_month[month] = {
-                        "total_score": 0,  # Perbaiki penamaan menjadi total_score
-                        "count": 0
-                    }
-                
-                # Menambahkan total satisfaction score per bulan
-                ss_per_month[month]["total_score"] += satisfaction_scores
-                ss_per_month[month]["count"] += 1
+            if month not in predictions_per_month:
+                predictions_per_month[month] = 0
+            predictions_per_month[month] += 1
             
-            total_predictions_per_month = [
-                {
-                    "month": month,
-                    "total_predictions": predictions_per_month.get(month, 0)
-                }
-                for month in sorted(predictions_per_month.keys())
-            ]
+        total_predictions_per_month = [
+            {
+                "month": month,
+                "total_predictions": predictions_per_month.get(month, 0)
+            }
+            for month in sorted(predictions_per_month.keys())
+        ]    
     
         return jsonify({
             "information": {
                     "total_customers": total_customers,
                     "total_churn": total_churn,
                     "total_not_churn": total_not_churn,
-                    "total_satisfaction_score_per_month": total_predictions_per_month,
                     "total_predictions_per_month": total_predictions_per_month,
                 }
         })
