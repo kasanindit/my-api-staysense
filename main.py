@@ -93,11 +93,38 @@ def valid_values():
         for col in encoder
     })
 
+@app.route("/user/data", methods=["GET"])
+def get_user_data():
+    try:
+        user_id = request.args.get("id")
+    
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+
+        user_data_ref = db.collection("predictions").where("id", "==", user_id).stream()
+        
+        user_data = []
+        for doc in user_data_ref:
+            user_data.append(doc.to_dict())
+            
+        if not user_data:
+            return jsonify({"error": "No data found for this user"}), 404
+        
+        return jsonify({"user_data": user_data})
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # Input Manual
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
         data = request.get_json()
+        user_id = data.get("id")
+        
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+        
         data = {k.lower(): v for k, v in data.items()}
         
         input_data = encode_input(data)
@@ -125,6 +152,7 @@ def predict():
 
         # output masuk ke firestore
         db.collection("predictions").add({
+            "user_id": user_id,
             "input_source":"manual",
             "timestamp": now.isoformat(),
             "month": month_str,
@@ -150,36 +178,45 @@ def predict():
         }), 500
             
 # Upload File
-def upload_to_storage(file, filename, folder="uploaded_files"):
-    blob = bucket.blob(f"{folder}/{filename}")
+def upload_to_storage(user_id, file, filename, folder="uploaded_files"):
+    # user_folder = f"{folder}/{user_id}/"
+    blob = bucket.blob(f"{folder}/{user_id}/{filename}")
     blob.upload_from_file(file, content_type=file.content_type)
     blob.make_public()
     return blob.public_url
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    if 'file' not in request.files:
-        return jsonify({"error": "File is required"}), 400
-
-    file = request.files['file']
-    filename = file.filename.lower()
-
-    if filename.endswith(".csv"):
-        df = pd.read_csv(file)
-    elif filename.endswith((".xls", ".xlsx")):
-        df = pd.read_excel(file)
-    else:
-        return jsonify({"error": "Unsupported file format. Only CSV, XLS, XLSX allowed."}), 400
-
-    # Normalisasi nama kolom
-    df.columns = df.columns.str.lower().str.replace(' ', '_').str.replace('[^a-zA-Z0-9_]', '', regex=True)
-
-    # Cek kolom yang wajib ada
-    missing_cols = [col for col in columns if col not in df.columns]
-    if missing_cols:
-        return jsonify({"error": f"Missing columns: {missing_cols}"}), 400
-
     try:
+        # Ambil user_id dari form data
+        user_id = request.form.get("id")
+
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+
+        # Cek apakah file ada dalam request
+        if 'file' not in request.files:
+            return jsonify({"error": "File is required"}), 400
+
+        file = request.files['file']
+        filename = file.filename.lower()
+
+        # Validasi format file yang di-upload
+        if filename.endswith(".csv"):
+            df = pd.read_csv(file)
+        elif filename.endswith((".xls", ".xlsx")):
+            df = pd.read_excel(file)
+        else:
+            return jsonify({"error": "Unsupported file format. Only CSV, XLS, XLSX allowed."}), 400
+
+        # Normalisasi nama kolom
+        df.columns = df.columns.str.lower().str.replace(' ', '_').str.replace('[^a-zA-Z0-9_]', '', regex=True)
+
+        # Cek kolom yang wajib ada
+        missing_cols = [col for col in columns if col not in df.columns]
+        if missing_cols:
+            return jsonify({"error": f"Missing columns: {missing_cols}"}), 400
+
         # Ambil hanya kolom yang dibutuhkan
         df = df[columns]
 
@@ -201,10 +238,13 @@ def upload():
         total_customers = len(proba)
         churn_count = int(np.sum(churn_flags))
 
+        # Upload file ke Firebase Storage dengan user_id
         file.stream.seek(0)
-        file_url = upload_to_storage(file, filename)
+        file_url = upload_to_storage(file, filename, user_id)  # Menambahkan user_id
 
+        # Simpan summary hasil prediksi ke Firestore
         summary = {
+            "user_id": user_id,  # Simpan user_id agar data terpisah per pengguna
             "input_source": "Upload file",
             "total_customers": total_customers,
             "churn_count": churn_count,
@@ -216,6 +256,7 @@ def upload():
             "month": datetime.now().strftime("%Y-%m")
         }
 
+        # Menyimpan data prediksi ke Firestore dengan user_id
         db.collection("predictions").add(summary)
 
         return jsonify({
@@ -228,6 +269,8 @@ def upload():
             "status": "error",
             "message": str(e)
         }), 500
+        
+    
 
 # History
 @app.route("/history", methods=["GET"])
@@ -243,7 +286,13 @@ def get_summary_history():
 @app.route("/dashboard/chart", methods=["GET"])
 def get_chart_data():
     try:
-        docs = db.collection("predictions").stream()
+        # docs = db.collection("predictions").stream()
+        user_id = request.args.get("id")
+        
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+        
+        docs = db.collection("predictions").where("user_id", "==", user_id).stream()
 
         total_churn = 0
         total_not_churn = 0
@@ -252,7 +301,8 @@ def get_chart_data():
 
         for doc in docs:
             data = doc.to_dict()
-            is_churn = data.get("is_churn", False)
+            is_churn = data.get("is_churn", None)
+            churn_count = data.get("churn_count", None)
             month = data.get("month", "")
             customers = data.get("total_customers", 1)
             
@@ -261,10 +311,14 @@ def get_chart_data():
             if not month:
                 continue 
             
-            if is_churn:
-                total_churn += customers
-            else:
-                total_not_churn += customers
+            if is_churn is not None:
+                if is_churn:
+                    total_churn += customers
+                else:
+                    total_not_churn += customers
+            elif churn_count is not None:
+                total_churn += churn_count
+                total_not_churn += (customers - churn_count)
 
             if month not in per_month:
                 per_month[month] = {"churn": 0, "total": 0}
@@ -286,8 +340,8 @@ def get_chart_data():
 
         return jsonify({
             "pie_chart": {
-                "churn": f"{churn_percent}%",
-                "not_churn": f"{not_churn_percent}%"
+                "churn": churn_percent,
+                "not_churn": not_churn_percent
             },
             "bar_chart": churn_rate_per_month,
             "total_customer": total_customers  
@@ -299,7 +353,12 @@ def get_chart_data():
 @app.route("/dashboard/informations", methods = ["GET"])
 def get_informations():
     try:
-        docs = db.collection("predictions").stream()
+        user_id = request.args.get("id")
+        
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+        
+        docs = db.collection("predictions").where("user_id", "==", user_id).stream()
         
         total_churn = 0
         total_not_churn = 0
@@ -309,7 +368,8 @@ def get_informations():
         for doc in docs:
             data = doc.to_dict()
            
-            is_churn = data.get("is_churn", False)
+            is_churn = data.get("is_churn", None)
+            churn_count = data.get("churn_count", None)
             month = data.get("month", "")
             customers = data.get("total_customers", 1)
                         
@@ -318,10 +378,14 @@ def get_informations():
             if not month:
                 continue
             
-            if is_churn:
-                total_churn += customers
-            else:
-                total_not_churn += customers
+            if is_churn is not None:
+                if is_churn:
+                    total_churn += customers
+                else:
+                    total_not_churn += customers
+            elif churn_count is not None:
+                total_churn += churn_count
+                total_not_churn += (customers - churn_count)
                 
             if month not in predictions_per_month:
                 predictions_per_month[month] = 0
@@ -360,8 +424,8 @@ def upload_wordcloud_image(image_bytes, filename):
     blob.make_public()
     return blob.public_url
 
-def append_to_firestore_text(new_text):
-    doc_ref = db.collection("wordcloud").document("cumulative_wordcloud")
+def append_to_firestore_text(user_id, new_text):
+    doc_ref = db.collection("wordcloud").document(f"{user_id}_cumulative_wordcloud")
     doc = doc_ref.get()
     if doc.exists:
         existing_text = doc.to_dict().get("text", "")
@@ -370,8 +434,8 @@ def append_to_firestore_text(new_text):
         updated_text = new_text
     doc_ref.set({"text": updated_text})
 
-def read_firestore_text():
-    doc_ref = db.collection("wordcloud").document("cumulative_wordcloud")
+def read_firestore_text(user_id):
+    doc_ref = db.collection("wordcloud").document(f"{user_id}_cumulative_wordcloud")
     doc = doc_ref.get()
     if doc.exists:
         return doc.to_dict().get("text", "")
@@ -381,6 +445,12 @@ def read_firestore_text():
 def generate_wordcloud_from_model():
     text_from_file = ""
     form_text = ""
+    
+    data = request.get_json()
+    user_id = data.get("id")
+    
+    if not user_id:
+        return jsonify({"error": "user_id is required"}, 400)
     
     # untuk input file
     if 'file' in request.files:
@@ -409,8 +479,8 @@ def generate_wordcloud_from_model():
     if not combined_input:
         return jsonify({"error": "No valid text input from file or form."}), 400
     
-    append_to_firestore_text(combined_input)
-    text = read_firestore_text()
+    append_to_firestore_text(user_id, combined_input)
+    text = read_firestore_text(user_id)
     
     # membuat wordcloud
     wc = WordCloud(width=800, height=400, background_color=None, mode="RGBA").generate(text)
@@ -419,7 +489,7 @@ def generate_wordcloud_from_model():
     wc.to_image().save(img_byte_arr, format='PNG')
     img_byte_arr = img_byte_arr.getvalue()
 
-    image_url = upload_wordcloud_image(img_byte_arr, "wordclouds/wordcloud.png")
+    image_url = upload_wordcloud_image(img_byte_arr, f"wordclouds/{user_id}.png")
 
     return jsonify({"image_url": image_url})
 
