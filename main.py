@@ -93,28 +93,6 @@ def valid_values():
         for col in encoder
     })
 
-@app.route("/user/data", methods=["GET"])
-def get_user_data():
-    try:
-        user_id = request.args.get("id")
-    
-        if not user_id:
-            return jsonify({"error": "user_id is required"}), 400
-
-        user_data_ref = db.collection("predictions").where("id", "==", user_id).stream()
-        
-        user_data = []
-        for doc in user_data_ref:
-            user_data.append(doc.to_dict())
-            
-        if not user_data:
-            return jsonify({"error": "No data found for this user"}), 404
-        
-        return jsonify({"user_data": user_data})
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 # Input Manual
 @app.route("/predict", methods=["POST"])
 def predict():
@@ -526,6 +504,28 @@ def get_clustering_data():
         })
 
     return jsonify(output)
+
+@app.route("/user/data", methods=["GET"])
+def get_user_data():
+    try:
+        user_id = request.args.get("id")
+    
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
+
+        user_data_ref = db.collection("predictions").where("user_id", "==", user_id).stream()
+        
+        user_data = []
+        for doc in user_data_ref:
+            user_data.append(doc.to_dict())
+            
+        if not user_data:
+            return jsonify({"error": "No data found for this user"}), 404
+        
+        return jsonify({"user_data": user_data})
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
     
 if __name__ == "__main__":

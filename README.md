@@ -54,15 +54,35 @@
     }
     ```
 - **Response:**
-    ```json
-    {
-        "prediction": {
-            "is_churn": "boolean",
-            "churn_probability": "float%",
-            "message": "string"
+    - **Status code:** 
+        - `200 OK` on success
+        - `400 Bad Request` if `id` is missing
+        - `500 Internal Server Error` on failure
+    - **Body**
+        - Success:
+        ```json
+        {
+            "status": "success",
+            "prediction": {
+                "is_churn": "boolean",
+                "churn_rate": "string",
+                "message": "string",
+                "solution": "string"
+            }
         }
-    }
-    ```
+        ```
+        - Error (missing `id`):
+        ```json
+        {
+            "status": "error",
+            "message": "user_id is required",
+            "prediction": {
+                "is_churn": "unknown",
+                "churn_probability": "unknown",
+                "message": "Prediction failed due to an internal error."
+            }
+        }
+        ```
 
 ---
 
@@ -75,20 +95,24 @@
     Content-Type: multipart/form-data
     ```
 - **Request Body:**
-    - Form field `file` (berisi file `.csv`, `.xls`, atau `.xlsx`)
+    - `id`: User id (required) 
+    - `file` : Form field file (berisi file `.csv`, `.xls`, atau `.xlsx`)
 
 - **Response:**
+    - **Status code:** 
+        - `200 OK` on success
+        - `400 Bad Request` if `id` is missing
+        - `500 Internal Server Error` on failure
     ```json
     {
+        "status": "success",
         "summary": {
+            "user_id": "string",
+            "churn_rate": "string",
             "total_customers": "int",
             "churn_count": "int",
             "not_churn_count": "int",
-            "churn_rate": "float%",
-            "filename": "string",
-            "file_url": "string (URL)",
-            "timestamp": "string (ISO8601)",
-            "month": "string (YYYY-MM)"
+            "file_url": "https://storage.googleapis.com/..."
         }
     }
     ```
@@ -106,15 +130,15 @@
             {
                 "timestamp": "string (ISO8601)",
                 "month": "string (YYYY-MM)",
-                "is_churn": boolean, (hanya untuk prediksi individu)
-                "churn_probability": float, (hanya untuk prediksi individu)
-                "customer_data": { ... }, (hanya untuk prediksi individu)
-                "total_customers": int, (hanya untuk prediksi batch)
-                "churn_count": int, (hanya untuk prediksi batch)
-                "not_churn_count": int, (hanya untuk prediksi batch)
-                "churn_rate": "float%", (hanya untuk prediksi batch)
-                "filename": "string", (hanya untuk prediksi batch)
-                "file_url": "string (URL)" (hanya untuk prediksi batch)
+                "is_churn": "boolean", 
+                "churn_probability": "float", 
+                "customer_data": { ... }, 
+                "total_customers": "int", 
+                "churn_count": "int", 
+                "not_churn_count": "int", 
+                "churn_rate": "float%", 
+                "filename": "string", 
+                "file_url": "string (URL)" 
             }
         ]
     }
@@ -123,26 +147,78 @@
 ---
 
 ## **Chart**
-- **Endpoint:** `/dashboar/chart`
+- **Endpoint:** `/dashboard/chart`
 - **Method:** `GET`
 - **Description:** Mengambil data untuk kebutuhan visualisasi pie chart dan bar chart churn.
+- **Request Parameters:**
+    - `id` (required): The ID of the user.
 - **Response:**
     ```json
     {
         "pie_chart": {
-            "churn": int,
-            "not_churn": int
+            "churn": "int",
+            "not_churn": "int"
         },
         "bar_chart": [
             {
                 "month": "string (YYYY-MM)",
-                "churn_rate": float
+                "churn_rate": "float"
             }
-        ]
+        ],
+        "total_customer": "int"
     }
     ```
 
-    ## **Wordcloud**
+## **Informations**
+- **Endpoint:** `/dashboard/informations`
+- **Method:** `GET`
+- **Description:** Mengambil data untuk informations dashboard.
+- **Request Parameters:**
+    - `id` (required): The ID of the user.
+- **Response:**
+    ```json
+    {
+        "information": {
+            "total_customers": 100,
+            "total_churn": 45,
+            "total_not_churn": 55,
+            "total_predictions_per_month": [
+            {
+                "month": "YYYY-MM",
+                "total_predictions": "int"
+            },
+            {
+                "month": "YYYY-MM",
+                "total_predictions": "int"
+            },
+
+            ]
+        }
+    }
+    ```
+## **Generate Word Cloud**
+- **Endpoint:** `/wordcloud`
+- **Method:** `POST`
+- **Description:** Generates Word Cloud berdasarkan user input file.
+- **Request Header:**
+    ```
+    Content-Type: multipart/form-data or application/json
+    ```
+- **Request Body (JSON or Form Data):**
+    - **Text** (optional): If provided in the form, it will be used along with the file data.
+    - **File** (optional): CSV or XLS file for text extraction.
+- **Response:**
+    - **Status code:**
+        - `200 OK` on success
+        - `400 Bad Request` if input text or file is missing
+    - **Body:**
+        ```json
+        {
+            "image_url": "https://storage.googleapis.com/.../wordcloud.png"
+        }
+        ```
+
+## **Wordcloud**
 - **Endpoint:** `/wordcloud`
 - **Method:** `POST`
 - **Description:** Mengirim data untuk kebutuhan visualisasi Wordcloud.
@@ -171,14 +247,14 @@
     ```json
     [
       {
-        "cluster": int,
+        "cluster": "int",
         "description": "string",
-        "count": int
+        "count": "int"
       },
       {
-        "cluster": int,
+        "cluster": "int",
         "description": "string",
-        "count": int
+        "count": "int"
       }
     ]
     ```
