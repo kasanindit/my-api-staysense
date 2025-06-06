@@ -11,18 +11,18 @@ from datetime import datetime
 from wordcloud import WordCloud
 
 
-firebase_key = os.getenv("FIREBASE_CREDENTIALS")
-cred = credentials.Certificate(json.loads(firebase_key))
-
-firebase_admin.initialize_app(cred, {
-    'storageBucket': 'staysense-624b4.firebasestorage.app'
-})
-
-# cred = credentials.Certificate("staysenseKey.json")
+# firebase_key = os.getenv("FIREBASE_CREDENTIALS")
+# cred = credentials.Certificate(json.loads(firebase_key))
 
 # firebase_admin.initialize_app(cred, {
 #     'storageBucket': 'staysense-624b4.firebasestorage.app'
 # })
+
+cred = credentials.Certificate("staysenseKey.json")
+
+firebase_admin.initialize_app(cred, {
+    'storageBucket': 'staysense-624b4.firebasestorage.app'
+})
 
 db = firestore.client() 
 
@@ -166,20 +166,17 @@ def upload_to_storage(user_id, file, filename, folder="uploaded_files"):
 @app.route("/upload", methods=["POST"])
 def upload():
     try:
-        # Ambil user_id dari form data
         user_id = request.form.get("id")
 
         if not user_id:
             return jsonify({"error": "user_id is required"}), 400
 
-        # Cek apakah file ada dalam request
         if 'file' not in request.files:
             return jsonify({"error": "File is required"}), 400
 
         file = request.files['file']
         filename = file.filename.lower()
 
-        # Validasi format file yang di-upload
         if filename.endswith(".csv"):
             df = pd.read_csv(file)
         elif filename.endswith((".xls", ".xlsx")):
@@ -187,15 +184,12 @@ def upload():
         else:
             return jsonify({"error": "Unsupported file format. Only CSV, XLS, XLSX allowed."}), 400
 
-        # Normalisasi nama kolom
         df.columns = df.columns.str.lower().str.replace(' ', '_').str.replace('[^a-zA-Z0-9_]', '', regex=True)
 
-        # Cek kolom yang wajib ada
         missing_cols = [col for col in columns if col not in df.columns]
         if missing_cols:
             return jsonify({"error": f"Missing columns: {missing_cols}"}), 400
 
-        # Ambil hanya kolom yang dibutuhkan
         df = df[columns]
 
         # Encode data
@@ -218,11 +212,11 @@ def upload():
 
         # Upload file ke Firebase Storage dengan user_id
         file.stream.seek(0)
-        file_url = upload_to_storage(file, filename, user_id)  # Menambahkan user_id
+        file_url = upload_to_storage(file, filename, user_id) 
 
         # Simpan summary hasil prediksi ke Firestore
         summary = {
-            "user_id": user_id,  # Simpan user_id agar data terpisah per pengguna
+            "user_id": user_id, 
             "input_source": "Upload file",
             "total_customers": total_customers,
             "churn_count": churn_count,
@@ -233,8 +227,7 @@ def upload():
             "timestamp": datetime.now().isoformat(),
             "month": datetime.now().strftime("%Y-%m")
         }
-
-        # Menyimpan data prediksi ke Firestore dengan user_id
+        
         db.collection("predictions").add(summary)
 
         return jsonify({
@@ -247,16 +240,33 @@ def upload():
             "status": "error",
             "message": str(e)
         }), 500
-        
-    
 
-# History
+from collections import defaultdict
 @app.route("/history", methods=["GET"])
 def get_summary_history():
     try:
         docs = db.collection("predictions").order_by("timestamp", direction=firestore.Query.DESCENDING).stream()
-        summaries = [doc.to_dict() for doc in docs]
-        return jsonify({"history": summaries})
+        
+        # Dictionary untuk menyimpan data per bulan
+        history_per_month = defaultdict(list)
+
+        for doc in docs:
+            data = doc.to_dict()
+            timestamp = data.get("timestamp")
+            month = data.get("month", "")  # Jika data sudah ada field month yang berisi bulan dalam format "YYYY-MM"
+
+            # Ambil bulan dari timestamp jika tidak ada field "month"
+            if not month and timestamp:
+                month = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m")
+
+            if month:
+                history_per_month[month].append(data)
+
+        # Convert dictionary to list of dictionaries for output
+        grouped_history = [{"month": month, "data": history} for month, history in history_per_month.items()]
+
+        return jsonify({"history_per_month": grouped_history})
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -271,58 +281,67 @@ def get_chart_data():
             return jsonify({"error": "user_id is required"}), 400
         
         docs = db.collection("predictions").where("user_id", "==", user_id).stream()
-
+        
         total_churn = 0
         total_not_churn = 0
         total_customers = 0
-        per_month = {}
-
+        churn_data_per_month = {}
+        total_customers_per_month = {}
+        
         for doc in docs:
             data = doc.to_dict()
             is_churn = data.get("is_churn", None)
-            churn_count = data.get("churn_count", None)
             month = data.get("month", "")
             customers = data.get("total_customers", 1)
+            churn_count = data.get("churn_count", 0)
             
             total_customers += customers
-
-            if not month:
-                continue 
             
+            # update customer
             if is_churn is not None:
                 if is_churn:
-                    total_churn += customers
+                    total_churn += customers  
                 else:
-                    total_not_churn += customers
-            elif churn_count is not None:
-                total_churn += churn_count
-                total_not_churn += (customers - churn_count)
-
-            if month not in per_month:
-                per_month[month] = {"churn": 0, "total": 0}
-            per_month[month]["total"] += customers
-            if is_churn:
-                per_month[month]["churn"] += customers
-
-        churn_rate_per_month = [
-            {
-                "month": m,
-                "churn_rate": round((d["churn"] / d["total"]) * 100, 2) if d["total"] > 0 else 0
-            }
-            for m, d in sorted(per_month.items())
-        ]
+                    total_not_churn += customers 
+            if churn_count is not None:
+                total_churn += churn_count 
+                total_not_churn += (customers - churn_count)  
                 
-        
+            # update churn per bulan
+            if month:
+                if month not in churn_data_per_month:
+                    churn_data_per_month[month] = 0
+                if is_churn is not None:
+                    if is_churn:
+                        churn_data_per_month[month] += customers  
+                if churn_count is not None:
+                    churn_data_per_month[month] += churn_count  
+                
+                total_customers_per_month[month] = total_customers_per_month.get(month, 0) + customers
+
+        # bar chart
+        churn_rate_per_month = []
+        for month in churn_data_per_month:
+            churn_rate = (churn_data_per_month[month] / total_customers_per_month[month]) * 100
+            churn_rate_per_month.append({
+                "month": month,
+                "churn_rate": round(churn_rate, 2)
+            })
+
+        # pie chart
         churn_percent = round((total_churn / total_customers) * 100, 2) if total_customers > 0 else 0
         not_churn_percent = 100 - churn_percent
 
         return jsonify({
             "pie_chart": {
-                "churn": churn_percent,
+                "churn": churn_percent,  
                 "not_churn": not_churn_percent
             },
             "bar_chart": churn_rate_per_month,
-            "total_customer": total_customers  
+            "total_customer": total_customers,
+            "total_churn": total_churn, 
+            "churn_data_per_month": churn_data_per_month,
+            "total_customer_per_month": total_customers_per_month  
         })
 
     except Exception as e:
@@ -424,11 +443,9 @@ def generate_wordcloud_from_model():
     text_from_file = ""
     form_text = ""
     
-    data = request.get_json()
-    user_id = data.get("id")
-    
+    user_id = request.form.get("id")
     if not user_id:
-        return jsonify({"error": "user_id is required"}, 400)
+        return jsonify({"error": "user_id is required"}), 400
     
     # untuk input file
     if 'file' in request.files:
@@ -443,16 +460,14 @@ def generate_wordcloud_from_model():
             return jsonify({"error": "Unsupported file format. Only CSV, XLS, XLSX allowed."}), 400
 
         df.columns = df.columns.str.lower().str.replace(' ', '_').str.replace('[^a-zA-Z0-9_]', '', regex=True)
-        text_columns = df.select_dtypes(include=['object'])
+        text_columns = df.select_dtypes(include=['object'])  # Ambil kolom bertipe text
         text_from_file = " ".join(text_columns.fillna(' ').astype(str).agg(' '.join, axis=1).tolist())
     
     # untuk input form
-    if request.is_json:
-        form_text = request.json.get("text", "")
-    else:
-        form_text = request.form.get("text", "")
+    if 'text' in request.form:
+        form_text = request.form['text']
     
-    # menggabungkan reason dari file dan form
+    # Menggabungkan text dari file dan form
     combined_input = f"{text_from_file} {form_text}".strip()
     if not combined_input:
         return jsonify({"error": "No valid text input from file or form."}), 400
@@ -460,7 +475,7 @@ def generate_wordcloud_from_model():
     append_to_firestore_text(user_id, combined_input)
     text = read_firestore_text(user_id)
     
-    # membuat wordcloud
+    # wordcloud
     wc = WordCloud(width=800, height=400, background_color=None, mode="RGBA").generate(text)
     
     img_byte_arr = io.BytesIO()
