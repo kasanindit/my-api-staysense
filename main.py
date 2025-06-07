@@ -443,7 +443,8 @@ def generate_wordcloud_from_model():
     text_from_file = ""
     form_text = ""
     
-    user_id = request.form.get("id")
+    user_id = request.form.get("id") if request.form.get("id") else request.json.get("id", "")
+    
     if not user_id:
         return jsonify({"error": "user_id is required"}), 400
     
@@ -460,14 +461,16 @@ def generate_wordcloud_from_model():
             return jsonify({"error": "Unsupported file format. Only CSV, XLS, XLSX allowed."}), 400
 
         df.columns = df.columns.str.lower().str.replace(' ', '_').str.replace('[^a-zA-Z0-9_]', '', regex=True)
-        text_columns = df.select_dtypes(include=['object'])  # Ambil kolom bertipe text
+        text_columns = df.select_dtypes(include=['object'])
         text_from_file = " ".join(text_columns.fillna(' ').astype(str).agg(' '.join, axis=1).tolist())
     
     # untuk input form
-    if 'text' in request.form:
-        form_text = request.form['text']
+    if request.is_json:
+        form_text = request.json.get("text", "")
+    else:
+        form_text = request.form.get("text", "")
     
-    # Menggabungkan text dari file dan form
+    # menggabungkan reason dari file dan form
     combined_input = f"{text_from_file} {form_text}".strip()
     if not combined_input:
         return jsonify({"error": "No valid text input from file or form."}), 400
@@ -475,14 +478,14 @@ def generate_wordcloud_from_model():
     append_to_firestore_text(user_id, combined_input)
     text = read_firestore_text(user_id)
     
-    # wordcloud
+    # membuat wordcloud
     wc = WordCloud(width=800, height=400, background_color=None, mode="RGBA").generate(text)
     
     img_byte_arr = io.BytesIO()
     wc.to_image().save(img_byte_arr, format='PNG')
     img_byte_arr = img_byte_arr.getvalue()
 
-    image_url = upload_wordcloud_image(img_byte_arr, f"wordclouds/{user_id}.png")
+    image_url = upload_wordcloud_image(img_byte_arr, f"wordclouds/{user_id}_wordcloud.png")
 
     return jsonify({"image_url": image_url})
 
