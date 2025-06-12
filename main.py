@@ -11,18 +11,18 @@ from datetime import datetime
 from wordcloud import WordCloud
 
 
-firebase_key = os.getenv("FIREBASE_CREDENTIALS")
-cred = credentials.Certificate(json.loads(firebase_key))
-
-firebase_admin.initialize_app(cred, {
-    'storageBucket': 'staysense-624b4.firebasestorage.app'
-})
-
-# cred = credentials.Certificate("staysenseKey.json")
+# firebase_key = os.getenv("FIREBASE_CREDENTIALS")
+# cred = credentials.Certificate(json.loads(firebase_key))
 
 # firebase_admin.initialize_app(cred, {
 #     'storageBucket': 'staysense-624b4.firebasestorage.app'
 # })
+
+cred = credentials.Certificate("staysenseKey.json")
+
+firebase_admin.initialize_app(cred, {
+    'storageBucket': 'staysense-624b4.firebasestorage.app'
+})
 
 db = firestore.client() 
 
@@ -33,8 +33,8 @@ def to_snake_case(name):
     return name.lower()
 
 
-# model_path = os.path.join("model", "model_tabnet_fix.pkl")
-model_path = os.path.join("model", "model_tabnet_reall.pkl")
+# model_path = os.path.join("model", "model_tabnet_reall.pkl")
+model_path = os.path.join("model", "model_xgboost.pkl")
 model_bundle = joblib.load(model_path)
 model = model_bundle["model"]
 encoder = {to_snake_case(k): v for k, v in model_bundle["label_encoders"].items()}
