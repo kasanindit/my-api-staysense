@@ -124,7 +124,7 @@ def predict():
                 "message": "The model predicts that this customer is likely to STAY.",
                 "solution": "Continue providing consistent service quality and consider rewarding loyalty to maintain customer satisfaction."        
             }
-        
+
         now = datetime.now()
         month_str = now.strftime("%Y-%m")
 
@@ -144,21 +144,10 @@ def predict():
             "prediction": result
         })
 
-    except ValueError as e:
-        return jsonify({
-            "status": "error",
-            "message": f"Invalid value type: {str(e)}. Please check the data types of the input fields.",
-            "prediction": {
-                "is_churn": "unknown",
-                "churn_probability": "unknown",
-                "message": "Prediction failed due to invalid value types."
-            }
-        }), 400
-
     except Exception as e:
         return jsonify({
             "status": "error",
-            "message": f"An unexpected error occurred: {str(e)}",
+            "message": f"Missing input data : {str(e)}",
             "prediction": {
                 "is_churn": "unknown",
                 "churn_probability": "unknown",
@@ -220,8 +209,8 @@ def upload():
 
         total_customers = len(proba)
         churn_count = int(np.sum(churn_flags))
-        
-        # Upload file ke Firebase Storage
+
+        # Upload file ke Firebase Storage dengan user_id
         file.stream.seek(0)
         file_url = upload_to_storage(file, filename, user_id) 
 
