@@ -11,18 +11,18 @@ from datetime import datetime
 from wordcloud import WordCloud
 
 
-# firebase_key = os.getenv("FIREBASE_CREDENTIALS")
-# cred = credentials.Certificate(json.loads(firebase_key))
-
-# firebase_admin.initialize_app(cred, {
-#     'storageBucket': 'staysense-624b4.firebasestorage.app'
-# })
-
-cred = credentials.Certificate("staysenseKey.json")
+firebase_key = os.getenv("FIREBASE_CREDENTIALS")
+cred = credentials.Certificate(json.loads(firebase_key))
 
 firebase_admin.initialize_app(cred, {
     'storageBucket': 'staysense-624b4.firebasestorage.app'
 })
+
+# cred = credentials.Certificate("staysenseKey.json")
+
+# firebase_admin.initialize_app(cred, {
+#     'storageBucket': 'staysense-624b4.firebasestorage.app'
+# })
 
 db = firestore.client() 
 
